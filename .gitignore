@@ -1,0 +1,8 @@
+.env
+db-import/*.sql
+uploads/
+.DS_Store
+emergencydentalpros-theme/
+emergencydentalpros/
+.env.sync
+
