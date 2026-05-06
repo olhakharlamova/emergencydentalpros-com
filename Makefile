@@ -1,4 +1,26 @@
+-include .env
 -include .env.sync
+
+## ── Remote ───────────────────────────────────────────────────────────────────
+REMOTE_SSH      := widev
+REMOTE_WP       := /var/www/dev.widev.pro/public_html
+REMOTE_DB_USER  := wpuser
+REMOTE_DB_NAME  := wp_widev
+REMOTE_URL      := https://dev.widev.pro
+LOCAL_URL       := http://localhost:8080
+REMOTE_THEME    := $(REMOTE_WP)/wp-content/themes/edp-v2/
+REMOTE_PLUGIN   := $(REMOTE_WP)/wp-content/plugins/emergencydentalpros/
+THEME_DIR       := ./emergencydentalpros-theme
+PLUGIN_DIR      := ./emergencydentalpros
+
+## ── Local shortcuts ──────────────────────────────────────────────────────────
+WP   := docker compose --profile tools run --rm wpcli wp --allow-root
+DB   := docker compose exec -T db mariadb -u$(DB_USER) -p$(DB_PASS) $(DB_NAME)
+DUMP := docker compose exec -T db mariadb-dump -u$(DB_USER) -p$(DB_PASS) $(DB_NAME)
+
+.PHONY: up down logs url-fix plugins db-pull db-push media-pull media-push theme-push plugin-push sync
+
+## ── Docker ───────────────────────────────────────────────────────────────────
 
 up:
 	docker compose up -d
@@ -6,24 +28,91 @@ up:
 down:
 	docker compose down
 
-url-fix:
-	docker compose --profile tools run --rm wpcli wp search-replace 'https://dev.widev.pro' 'http://localhost:8080' --allow-root
-	docker compose --profile tools run --rm wpcli wp search-replace 'http://widev.pro' 'http://localhost:8080' --allow-root
-	docker compose --profile tools run --rm wpcli wp search-replace 'https://widev.pro' 'http://localhost:8080' --allow-root
-
-plugins:
-	docker compose --profile tools run --rm wpcli wp plugin install classic-editor tablepress wordpress-importer query-monitor --activate --allow-root
-
-sync:
-	ssh root@dev.widev.pro "mysqldump -u wpuser -p'$(DB_SYNC_PASS)' wp_widev > /tmp/edp-dump.sql"
-	scp root@dev.widev.pro:/tmp/edp-dump.sql db-import/dump.sql
-	rsync -avz root@dev.widev.pro:/var/www/dev.widev.pro/public_html/wp-content/uploads/ uploads/
-	docker compose down -v
-	docker compose up -d
-	sleep 30
-	docker compose exec wordpress mkdir -p /var/www/html/wp-content/upgrade && docker compose exec wordpress chmod 777 /var/www/html/wp-content/upgrade /var/www/html/wp-content/plugins
-	make url-fix
-	make plugins
-
 logs:
 	docker compose logs -f wordpress
+
+## ── WordPress ────────────────────────────────────────────────────────────────
+
+url-fix:
+	$(WP) search-replace '$(REMOTE_URL)' '$(LOCAL_URL)' --all-tables --skip-columns=guid
+	$(WP) search-replace 'http://widev.pro'  '$(LOCAL_URL)' --all-tables --skip-columns=guid
+	$(WP) search-replace 'https://widev.pro' '$(LOCAL_URL)' --all-tables --skip-columns=guid
+	$(WP) rewrite flush
+
+plugins:
+	$(WP) plugin install classic-editor tablepress wordpress-importer query-monitor --activate
+
+## ── DB sync ──────────────────────────────────────────────────────────────────
+
+# Pull remote DB → import locally → fix URLs
+db-pull:
+	@echo "→ Exporting remote DB..."
+	ssh $(REMOTE_SSH) "mysqldump -u $(REMOTE_DB_USER) -p'$(DB_SYNC_PASS)' $(REMOTE_DB_NAME) > /tmp/edp-sync.sql"
+	@mkdir -p db-import
+	scp $(REMOTE_SSH):/tmp/edp-sync.sql db-import/pull.sql
+	ssh $(REMOTE_SSH) "rm /tmp/edp-sync.sql"
+	@echo "→ Importing locally..."
+	$(DB) < db-import/pull.sql
+	@echo "→ Fixing URLs..."
+	$(MAKE) url-fix
+	@echo "✓ Remote DB is now local"
+
+# Push local DB → remote → fix URLs
+db-push:
+	@echo "→ Exporting local DB..."
+	@mkdir -p db-import
+	$(DUMP) > db-import/push.sql
+	@echo "→ Uploading to remote..."
+	scp db-import/push.sql $(REMOTE_SSH):/tmp/edp-push.sql
+	@echo "→ Importing on remote..."
+	ssh $(REMOTE_SSH) "mysql -u $(REMOTE_DB_USER) -p'$(DB_SYNC_PASS)' $(REMOTE_DB_NAME) < /tmp/edp-push.sql && rm /tmp/edp-push.sql"
+	@echo "→ Fixing URLs on remote..."
+	ssh $(REMOTE_SSH) "wp --path=$(REMOTE_WP) --allow-root \
+	  search-replace '$(LOCAL_URL)' '$(REMOTE_URL)' --all-tables --skip-columns=guid && \
+	  wp --path=$(REMOTE_WP) --allow-root rewrite flush"
+	@echo "✓ Local DB is now on remote"
+
+## ── Theme / Plugin deploy (bypass CI — instant) ──────────────────────────────
+
+# Build theme and rsync directly to remote (no GitHub Actions wait)
+theme-push:
+	@echo "→ Building theme..."
+	cd $(THEME_DIR) && npm run build
+	@echo "→ Deploying theme to remote..."
+	rsync -avz --delete \
+	  --exclude ".git/" \
+	  --exclude ".github/" \
+	  --exclude "node_modules/" \
+	  --exclude "src/" \
+	  --exclude "*.md" \
+	  --exclude ".gitignore" \
+	  --exclude ".prettierrc" \
+	  $(THEME_DIR)/ $(REMOTE_SSH):$(REMOTE_THEME)
+	@echo "✓ Theme deployed"
+
+# Rsync plugin directly to remote (no GitHub Actions wait)
+plugin-push:
+	@echo "→ Deploying plugin to remote..."
+	rsync -avz --delete \
+	  --exclude ".git/" \
+	  --exclude ".github/" \
+	  --exclude "node_modules/" \
+	  --exclude "src/" \
+	  --exclude "*.md" \
+	  $(PLUGIN_DIR)/ $(REMOTE_SSH):$(REMOTE_PLUGIN)
+	@echo "✓ Plugin deployed"
+
+## ── Media sync ───────────────────────────────────────────────────────────────
+
+# Pull uploads from remote → local
+media-pull:
+	rsync -avz --progress $(REMOTE_SSH):/var/www/dev.widev.pro/public_html/wp-content/uploads/ uploads/
+
+# Push local uploads → remote
+media-push:
+	rsync -avz --progress uploads/ $(REMOTE_SSH):/var/www/dev.widev.pro/public_html/wp-content/uploads/
+
+## ── Composite ────────────────────────────────────────────────────────────────
+
+# Full pull: DB + media (use at start of session)
+sync: db-pull media-pull
