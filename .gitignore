@@ -6,3 +6,5 @@ emergencydentalpros-theme/
 emergencydentalpros/
 .env.sync
 
+.claude/
+db-import/
