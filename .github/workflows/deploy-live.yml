@@ -27,7 +27,11 @@ jobs:
           SFTP_USER: ${{ secrets.WPX_SFTP_USER }}
           SFTP_PASS: ${{ secrets.WPX_SFTP_PASS }}
         run: |
-          mkdir -p ~/.lftp
-          echo "set sftp:auto-confirm yes" > ~/.lftp/rc
-          lftp -u "${SFTP_USER},${SFTP_PASS}" -p 2222 "sftp://${SFTP_HOST}" \
-            -e "mirror --reverse --verbose . public_html; bye"
+          echo 'set net:timeout 30'                                                                   >  /tmp/lftp-deploy.txt
+          echo 'set net:max-retries 3'                                                                >> /tmp/lftp-deploy.txt
+          echo 'set sftp:auto-confirm yes'                                                            >> /tmp/lftp-deploy.txt
+          echo 'set sftp:connect-program "ssh -a -x -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"' >> /tmp/lftp-deploy.txt
+          echo "open -u ${SFTP_USER},${SFTP_PASS} sftp://${SFTP_HOST}:2222"                          >> /tmp/lftp-deploy.txt
+          echo 'mirror --reverse --verbose . public_html'                                             >> /tmp/lftp-deploy.txt
+          echo 'bye'                                                                                  >> /tmp/lftp-deploy.txt
+          lftp -f /tmp/lftp-deploy.txt
