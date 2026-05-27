@@ -19,7 +19,7 @@ jobs:
       - name: Install lftp
         run: sudo apt-get install -y lftp
 
-      # Deploys files that live in the WordPress root (verification files, etc.)
+      # Deploys files in webroot/ to WordPress root (verification files, etc.)
       # Theme and plugin are deployed from their own repos.
       - name: Deploy webroot files via SFTP
         env:
@@ -29,8 +29,5 @@ jobs:
         run: |
           mkdir -p ~/.lftp
           echo "set sftp:auto-confirm yes" > ~/.lftp/rc
-          lftp -u "$SFTP_USER","$SFTP_PASS" -p 2222 "sftp://$SFTP_HOST" << 'EOF'
-          mirror --reverse --verbose \
-            . public_html
-          bye
-          EOF
+          lftp -u "${SFTP_USER},${SFTP_PASS}" -p 2222 "sftp://${SFTP_HOST}" \
+            -e "mirror --reverse --verbose . public_html; bye"
