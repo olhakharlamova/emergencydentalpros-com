@@ -18,7 +18,7 @@ WP   := docker compose --profile tools run --rm wpcli wp --allow-root
 DB   := docker compose exec -T db mariadb -u$(DB_USER) -p$(DB_PASS) $(DB_NAME)
 DUMP := docker compose exec -T db mariadb-dump -u$(DB_USER) -p$(DB_PASS) $(DB_NAME)
 
-.PHONY: up down logs url-fix plugins db-pull db-push media-pull media-push theme-push plugin-push sync
+.PHONY: up down logs url-fix plugins db-pull db-push media-pull media-push theme-push plugin-push webroot-push sync
 
 ## ── Docker ───────────────────────────────────────────────────────────────────
 
@@ -99,8 +99,19 @@ plugin-push:
 	  --exclude "node_modules/" \
 	  --exclude "src/" \
 	  --exclude "*.md" \
+	  --exclude "tests/" \
+	  --exclude "test-results/" \
+	  --exclude "playwright.config.ts" \
 	  $(PLUGIN_DIR)/ $(REMOTE_SSH):$(REMOTE_PLUGIN)
 	@echo "✓ Plugin deployed"
+
+## ── Webroot extras (verification files, etc.) ────────────────────────────────
+
+# Deploy files that live directly in the WordPress root (not inside wp-content).
+webroot-push:
+	@echo "→ Deploying webroot extras to remote..."
+	rsync -avz $(PWD)/webroot/ $(REMOTE_SSH):$(REMOTE_WP)/
+	@echo "✓ Webroot extras deployed"
 
 ## ── Media sync ───────────────────────────────────────────────────────────────
 
