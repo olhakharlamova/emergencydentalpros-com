@@ -16,16 +16,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install lftp
+        run: sudo apt-get install -y lftp
+
       # Deploys files that live in the WordPress root (verification files, etc.)
-      # Theme and plugin are deployed from their own repos (webimdeveloper/emergencydentalpros-theme / emergencydentalpros)
+      # Theme and plugin are deployed from their own repos.
       - name: Deploy webroot files via SFTP
-        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
-        with:
-          server: ${{ secrets.WPX_SFTP_HOST }}
-          username: ${{ secrets.WPX_SFTP_USER }}
-          password: ${{ secrets.WPX_SFTP_PASS }}
-          port: 21
-          protocol: ftps-legacy
-          local-dir: ./webroot/
-          server-dir: public_html/
-          dangerous-clean-slate: false
+        env:
+          SFTP_HOST: ${{ secrets.WPX_SFTP_HOST }}
+          SFTP_USER: ${{ secrets.WPX_SFTP_USER }}
+          SFTP_PASS: ${{ secrets.WPX_SFTP_PASS }}
+        run: |
+          mkdir -p ~/.lftp
+          echo "set sftp:auto-confirm yes" > ~/.lftp/rc
+          lftp -u "$SFTP_USER","$SFTP_PASS" -p 2222 "sftp://$SFTP_HOST" << 'EOF'
+          mirror --reverse --verbose \
+            . public_html
+          bye
+          EOF
