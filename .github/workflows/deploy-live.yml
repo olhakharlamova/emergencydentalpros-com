@@ -24,8 +24,8 @@ jobs:
           server: ${{ secrets.WPX_SFTP_HOST }}
           username: ${{ secrets.WPX_SFTP_USER }}
           password: ${{ secrets.WPX_SFTP_PASS }}
-          port: 2222
-          protocol: sftp
+          port: 21
+          protocol: ftps-legacy
           local-dir: ./webroot/
           server-dir: public_html/
           dangerous-clean-slate: false
