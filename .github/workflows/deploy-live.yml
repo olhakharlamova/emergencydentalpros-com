@@ -1,0 +1,31 @@
+name: Deploy Webroot → Live (wpx.net)
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'webroot/**'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Deploys files that live in the WordPress root (verification files, etc.)
+      # Theme and plugin are deployed from their own repos (webimdeveloper/emergencydentalpros-theme / emergencydentalpros)
+      - name: Deploy webroot files via SFTP
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.WPX_SFTP_HOST }}
+          username: ${{ secrets.WPX_SFTP_USER }}
+          password: ${{ secrets.WPX_SFTP_PASS }}
+          port: 2222
+          protocol: sftp
+          local-dir: ./webroot/
+          server-dir: public_html/
+          dangerous-clean-slate: false

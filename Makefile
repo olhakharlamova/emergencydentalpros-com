@@ -1,7 +1,7 @@
 -include .env
 -include .env.sync
 
-## ── Remote ───────────────────────────────────────────────────────────────────
+## ── Remote (staging) ─────────────────────────────────────────────────────────
 REMOTE_SSH      := widev
 REMOTE_WP       := /var/www/dev.widev.pro/public_html
 REMOTE_DB_USER  := wpuser
@@ -13,12 +13,15 @@ REMOTE_PLUGIN   := $(REMOTE_WP)/wp-content/plugins/emergencydentalpros/
 THEME_DIR       := ./emergencydentalpros-theme
 PLUGIN_DIR      := ./emergencydentalpros
 
+## ── Live (wpx.net) ───────────────────────────────────────────────────────────
+LIVE_URL        := https://emergencydentalpros.com
+
 ## ── Local shortcuts ──────────────────────────────────────────────────────────
 WP   := docker compose --profile tools run --rm wpcli wp --allow-root
 DB   := docker compose exec -T db mariadb -u$(DB_USER) -p$(DB_PASS) $(DB_NAME)
 DUMP := docker compose exec -T db mariadb-dump -u$(DB_USER) -p$(DB_PASS) $(DB_NAME)
 
-.PHONY: up down logs url-fix plugins db-pull db-push media-pull media-push theme-push plugin-push webroot-push sync
+.PHONY: up down logs url-fix plugins db-pull db-push media-pull media-push theme-push plugin-push webroot-push sync db-export-live
 
 ## ── Docker ───────────────────────────────────────────────────────────────────
 
@@ -122,6 +125,20 @@ media-pull:
 # Push local uploads → remote
 media-push:
 	rsync -avz --progress uploads/ $(REMOTE_SSH):/var/www/dev.widev.pro/public_html/wp-content/uploads/
+
+## ── Live DB export (staging → live-ready SQL dump) ──────────────────────────
+
+# Export staging DB with URLs already replaced → db-import/live-ready.sql
+# Then import that file manually via PhpMyAdmin on wpx.net.
+db-export-live:
+	@echo "→ Exporting staging DB with URLs replaced..."
+	ssh $(REMOTE_SSH) "mysqldump -u $(REMOTE_DB_USER) -p'$(DB_SYNC_PASS)' $(REMOTE_DB_NAME) > /tmp/edp-live-export.sql && \
+	  wp --path=$(REMOTE_WP) --allow-root \
+	    search-replace '$(REMOTE_URL)' '$(LIVE_URL)' --all-tables --skip-columns=guid --export=/tmp/edp-live-ready.sql"
+	@mkdir -p db-import
+	scp $(REMOTE_SSH):/tmp/edp-live-ready.sql db-import/live-ready.sql
+	ssh $(REMOTE_SSH) "rm -f /tmp/edp-live-export.sql /tmp/edp-live-ready.sql"
+	@echo "✓ db-import/live-ready.sql ready — import via PhpMyAdmin on wpx.net"
 
 ## ── Composite ────────────────────────────────────────────────────────────────
 
