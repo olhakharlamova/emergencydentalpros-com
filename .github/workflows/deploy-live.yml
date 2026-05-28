@@ -27,11 +27,16 @@ jobs:
           SFTP_USER: ${{ secrets.WPX_SFTP_USER }}
           SFTP_PASS: ${{ secrets.WPX_SFTP_PASS }}
         run: |
+          # Credentials in ~/.netrc so # ? and other special chars in the password
+          # are never parsed by lftp's script engine (which treats # as a comment).
+          printf 'machine %s login %s password %s\n' "${SFTP_HOST}" "${SFTP_USER}" "${SFTP_PASS}" > ~/.netrc
+          chmod 600 ~/.netrc
+
           echo 'set net:timeout 30'                                                                   >  /tmp/lftp-deploy.txt
           echo 'set net:max-retries 3'                                                                >> /tmp/lftp-deploy.txt
           echo 'set sftp:auto-confirm yes'                                                            >> /tmp/lftp-deploy.txt
           echo 'set sftp:connect-program "ssh -a -x -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa"' >> /tmp/lftp-deploy.txt
-          echo "open -u \"${SFTP_USER}\",\"${SFTP_PASS}\" sftp://${SFTP_HOST}:2222"                  >> /tmp/lftp-deploy.txt
+          echo "open sftp://${SFTP_HOST}:2222"                                                        >> /tmp/lftp-deploy.txt
           echo 'mirror --reverse --verbose . public_html'                                             >> /tmp/lftp-deploy.txt
           echo 'bye'                                                                                  >> /tmp/lftp-deploy.txt
           lftp -f /tmp/lftp-deploy.txt
